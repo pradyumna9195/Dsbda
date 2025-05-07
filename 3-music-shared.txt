@@ -1,0 +1,81 @@
+package PackageDemo3;
+
+import java.io.IOException;
+import java.util.HashSet;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.GenericOptionsParser;
+
+public class MusicDatasetAnalysis {
+
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        String[] files = new GenericOptionsParser(conf, args).getRemainingArgs();
+        Path input = new Path(files[0]);
+        Path output = new Path(files[1]);
+
+        Job job = new Job(conf, "MusicDatasetAnalysis");
+        job.setJarByClass(MusicDatasetAnalysis.class);
+        job.setMapperClass(MapForMusic.class);
+        job.setReducerClass(ReduceForMusic.class);
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+
+        FileInputFormat.addInputPath(job, input);
+        FileOutputFormat.setOutputPath(job, output);
+
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+
+    public static class MapForMusic extends Mapper<Object, Text, Text, Text> {
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            String line = value.toString().trim();
+            if (line.isEmpty()) return; // Skip blank lines
+
+            // Skip header if present
+            if (line.toLowerCase().contains("listener_id") && line.toLowerCase().contains("track_id")) {
+                return;
+            }
+
+            String[] parts = line.split(",");
+            if (parts.length >= 3) {
+                String listener_id = parts[0].trim();
+                String track_id = parts[1].trim();
+                String shared_flag = parts[2].trim();
+
+                if (!listener_id.isEmpty() && !track_id.isEmpty()) {
+                    context.write(new Text(track_id), new Text(listener_id + ":" + shared_flag));
+                }
+            }
+        }
+    }
+
+    public static class ReduceForMusic extends Reducer<Text, Text, Text, Text> {
+        public void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+            HashSet<String> uniqueListeners = new HashSet<>();
+            int sharedCount = 0;
+
+            for (Text val : values) {
+                String[] parts = val.toString().split(":");
+                if (parts.length == 2) {
+                    String listener_id = parts[0];
+                    String shared_flag = parts[1];
+
+                    uniqueListeners.add(listener_id);
+                    if (shared_flag.equals("1")) {
+                        sharedCount++;
+                    }
+                }
+            }
+
+            context.write(key, new Text("UniqueListeners: " + uniqueListeners.size() + ", SharedCount: " + sharedCount));
+        }
+    }
+}

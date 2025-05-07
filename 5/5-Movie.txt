@@ -1,0 +1,68 @@
+package PackageDemo;
+
+import java.io.IOException;
+import java.util.StringTokenizer;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.FloatWritable;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.GenericOptionsParser;
+
+public class MovieRecommendation {
+
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        String[] files = new GenericOptionsParser(conf, args).getRemainingArgs();
+        Path input = new Path(files[0]);  // Ratings file
+        Path output = new Path(files[1]); // Output directory
+
+        Job job = new Job(conf, "Movie Recommendation");
+        job.setJarByClass(MovieRecommendation.class);
+        job.setMapperClass(RatingMapper.class);
+        job.setReducerClass(AverageReducer.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(FloatWritable.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(FloatWritable.class);
+
+        FileInputFormat.addInputPath(job, input);
+        FileOutputFormat.setOutputPath(job, output);
+
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+
+    public static class RatingMapper extends Mapper<LongWritable, Text, Text, FloatWritable> {
+        public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+            String line = value.toString();
+            String[] fields = line.split(",");
+            if (fields.length >= 3 && !fields[0].equals("userId")) {
+                String movieId = fields[1];
+                float rating = Float.parseFloat(fields[2]);
+                context.write(new Text(movieId), new FloatWritable(rating));
+            }
+        }
+    }
+
+    public static class AverageReducer extends Reducer<Text, FloatWritable, Text, FloatWritable> {
+        public void reduce(Text movieId, Iterable<FloatWritable> ratings, Context context)
+                throws IOException, InterruptedException {
+            float sum = 0;
+            int count = 0;
+            for (FloatWritable rating : ratings) {
+                sum += rating.get();
+                count++;
+            }
+            float average = sum / count;
+           
+                context.write(movieId, new FloatWritable(average));
+            
+        }
+    }
+}
